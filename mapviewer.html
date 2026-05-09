@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Map Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0a;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  #canvas-wrapper {
+    position: absolute;
+    inset: 0;
+    cursor: grab;
+    overflow: hidden;
+    background: #111;
+  }
+
+  #canvas-wrapper.grabbing { cursor: grabbing; }
+
+  #map-img {
+    position: absolute;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    transform-origin: 0 0;
+    user-select: none;
+    pointer-events: none;
+  }
+
+  #crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0.25;
+  }
+
+  #crosshair::before, #crosshair::after {
+    content: '';
+    position: absolute;
+    background: #fff;
+  }
+
+  #crosshair::before {
+    width: 12px; height: 1px;
+    top: 0; left: -6px;
+  }
+
+  #crosshair::after {
+    width: 1px; height: 12px;
+    top: -6px; left: 0;
+  }
+
+  #ui {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  #top-bar {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    gap: 8px;
+    pointer-events: all;
+  }
+
+  .map-btn {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    color: #ccc;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    padding: 7px 14px;
+    cursor: pointer;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+
+  .map-btn:hover {
+    background: #252525;
+    color: #fff;
+    border-color: #555;
+  }
+
+  .map-btn.active {
+    background: #2a2a2a;
+    border-color: #888;
+    color: #fff;
+  }
+
+  #bottom-bar {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: #1a1a1acc;
+    border: 1px solid #333;
+    padding: 8px 18px;
+    pointer-events: all;
+    backdrop-filter: blur(4px);
+  }
+
+  #coords {
+    font-size: 12px;
+    color: #aaa;
+    letter-spacing: 0.06em;
+    min-width: 180px;
+    text-align: center;
+  }
+
+  #coords span {
+    color: #fff;
+  }
+
+  #zoom-label {
+    font-size: 11px;
+    color: #666;
+    letter-spacing: 0.08em;
+    min-width: 60px;
+    text-align: right;
+  }
+
+  #zoom-controls {
+    display: flex;
+    gap: 4px;
+  }
+
+  .zoom-btn {
+    background: #222;
+    border: 1px solid #333;
+    color: #aaa;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    width: 26px;
+    height: 26px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .zoom-btn:hover {
+    background: #2e2e2e;
+    color: #fff;
+  }
+
+  #dim-label {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #555;
+    pointer-events: none;
+  }
+
+  #loading {
+    position: absolute;
+    inset: 0;
+    background: #0a0a0a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 100;
+  }
+
+  #loading p {
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    color: #555;
+    text-transform: uppercase;
+  }
+
+  #loading .err {
+    color: #884444;
+    font-size: 11px;
+    max-width: 420px;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  #err-hint {
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <p id="loading-text">Loading map...</p>
+  <p class="err" id="err-hint">
+    Не удалось загрузить изображение.<br>
+    Убедись что HTML файл лежит в одной папке с PNG файлами и открыт через локальный сервер.<br>
+    <br>
+    Запусти в папке: <code>python -m http.server 8080</code><br>
+    Затем открой: <code>http://localhost:8080/mapviewer.html</code>
+  </p>
+</div>
+
+<div id="canvas-wrapper">
+  <img id="map-img" draggable="false" alt="map" />
+  <div id="crosshair"></div>
+</div>
+
+<div id="ui">
+  <div id="dim-label" id="dim-label">Overworld</div>
+
+  <div id="top-bar">
+    <button class="map-btn active" data-dim="overworld" onclick="switchMap('overworld', this)">Overworld</button>
+    <button class="map-btn" data-dim="nether" onclick="switchMap('nether', this)">Nether</button>
+  </div>
+
+  <div id="bottom-bar">
+    <div id="zoom-controls">
+      <button class="zoom-btn" onclick="zoomBy(1.5)">+</button>
+      <button class="zoom-btn" onclick="zoomBy(1/1.5)">−</button>
+    </div>
+    <div id="zoom-label">100%</div>
+    <div id="coords">X: <span id="cx">0</span> &nbsp; Z: <span id="cz">0</span></div>
+  </div>
+</div>
+
+<script>
+const MAPS = {
+  overworld: {
+    file: '2026-05-09_20.21.04_x-2512_z-2512.png',
+    label: 'Overworld',
+    size: 5024,
+    center: { x: -300, z: 100 }
+  },
+  nether: {
+    file: '2026-05-09_21.24.24_x-2512_z-2512.png',
+    label: 'Nether',
+    size: 5024,
+    center: { x: 0, z: 0 }
+  }
+};
+
+const IMG_SIZE = 5024;
+const WORLD_RANGE = 2512;
+
+let currentDim = 'overworld';
+let scale = 1;
+let offsetX = 0, offsetY = 0;
+let isDragging = false;
+let lastX = 0, lastY = 0;
+
+const img = document.getElementById('map-img');
+const wrapper = document.getElementById('canvas-wrapper');
+const loading = document.getElementById('loading');
+const loadingText = document.getElementById('loading-text');
+const errHint = document.getElementById('err-hint');
+const dimLabel = document.getElementById('dim-label');
+const zoomLabel = document.getElementById('zoom-label');
+const cxEl = document.getElementById('cx');
+const czEl = document.getElementById('cz');
+
+function getViewport() {
+  return { w: window.innerWidth, h: window.innerHeight };
+}
+
+function fitToScreen() {
+  const vp = getViewport();
+  const scaleX = vp.w / IMG_SIZE;
+  const scaleY = vp.h / IMG_SIZE;
+  scale = Math.min(scaleX, scaleY) * 0.95;
+  offsetX = (vp.w - IMG_SIZE * scale) / 2;
+  offsetY = (vp.h - IMG_SIZE * scale) / 2;
+  applyTransform();
+}
+
+function applyTransform() {
+  img.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+  zoomLabel.textContent = Math.round(scale * 100) + '%';
+}
+
+function imgToWorld(px, py) {
+  const x = Math.round((px / IMG_SIZE) * (WORLD_RANGE * 2) - WORLD_RANGE);
+  const z = Math.round((py / IMG_SIZE) * (WORLD_RANGE * 2) - WORLD_RANGE);
+  return { x, z };
+}
+
+function updateCoords(clientX, clientY) {
+  const px = (clientX - offsetX) / scale;
+  const py = (clientY - offsetY) / scale;
+  const { x, z } = imgToWorld(px, py);
+  cxEl.textContent = x;
+  czEl.textContent = z;
+}
+
+function zoomBy(factor, cx, cy) {
+  const vp = getViewport();
+  cx = cx ?? vp.w / 2;
+  cy = cy ?? vp.h / 2;
+
+  const prevScale = scale;
+  scale = Math.max(0.05, Math.min(50, scale * factor));
+
+  offsetX = cx - (cx - offsetX) * (scale / prevScale);
+  offsetY = cy - (cy - offsetY) * (scale / prevScale);
+  applyTransform();
+}
+
+function loadMap(dim) {
+  const map = MAPS[dim];
+  loading.style.display = 'flex';
+  errHint.style.display = 'none';
+  loadingText.textContent = 'Loading ' + map.label + '...';
+  dimLabel.textContent = map.label;
+
+  const newImg = new Image();
+  newImg.onload = () => {
+    img.src = newImg.src;
+    loading.style.display = 'none';
+    fitToScreen();
+  };
+  newImg.onerror = () => {
+    loadingText.textContent = 'Ошибка загрузки';
+    errHint.style.display = 'block';
+  };
+  newImg.src = map.file;
+}
+
+function switchMap(dim, btn) {
+  if (dim === currentDim) return;
+  currentDim = dim;
+  document.querySelectorAll('.map-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadMap(dim);
+}
+
+wrapper.addEventListener('mousedown', e => {
+  isDragging = true;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  wrapper.classList.add('grabbing');
+});
+
+window.addEventListener('mousemove', e => {
+  updateCoords(e.clientX, e.clientY);
+  if (!isDragging) return;
+  offsetX += e.clientX - lastX;
+  offsetY += e.clientY - lastY;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  applyTransform();
+});
+
+window.addEventListener('mouseup', () => {
+  isDragging = false;
+  wrapper.classList.remove('grabbing');
+});
+
+wrapper.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  zoomBy(factor, e.clientX, e.clientY);
+}, { passive: false });
+
+wrapper.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    isDragging = true;
+    lastX = e.touches[0].clientX;
+    lastY = e.touches[0].clientY;
+  }
+}, { passive: true });
+
+wrapper.addEventListener('touchmove', e => {
+  if (isDragging && e.touches.length === 1) {
+    offsetX += e.touches[0].clientX - lastX;
+    offsetY += e.touches[0].clientY - lastY;
+    lastX = e.touches[0].clientX;
+    lastY = e.touches[0].clientY;
+    applyTransform();
+  }
+}, { passive: true });
+
+wrapper.addEventListener('touchend', () => { isDragging = false; });
+
+window.addEventListener('resize', fitToScreen);
+
+window.addEventListener('keydown', e => {
+  if (e.key === '+' || e.key === '=') zoomBy(1.2);
+  if (e.key === '-') zoomBy(1/1.2);
+  if (e.key === '0') fitToScreen();
+  if (e.key === '1') { switchMap('overworld', document.querySelector('[data-dim="overworld"]')); }
+  if (e.key === '2') { switchMap('nether', document.querySelector('[data-dim="nether"]')); }
+});
+
+loadMap('overworld');
+</script>
+</body>
+</html>
