@@ -1,0 +1,7 @@
+[
+  {"x": 346, "z": -183,  "label": "Spawn",         "type": "home",  "color": "#ffffff", "dim": "overworld"},
+  {"x": 653, "z": -837,  "label": "Мистлест",         "type": "home", "color": "#32a8a4", "dim": "overworld"},
+  {"x": 0,    "z": 0,    "label": "Нули",           "type": "star",  "color": "#ffcc00", "dim": "overworld"},
+  {"x": 967,    "z": -841,    "label": "Железная дорога Мистлеста",           "type": "pin",  "color": "#a17b23", "dim": "overworld"},
+  {"x": 0,    "z": 0,    "label": "Нули (незер)",   "type": "fire",  "color": "#ff4400", "dim": "nether"}
+]

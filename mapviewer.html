@@ -5,11 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Anarchy Map</title>
 <style>
+  :root {
+    --bg: #080808;
+    --surface: #111111;
+    --surface2: #181818;
+    --border: #2a2a2a;
+    --border2: #3a3a3a;
+    --text: #c8c8c8;
+    --text-dim: #555;
+    --text-bright: #eeeeee;
+    --accent: #e05c00;
+    --accent2: #ff7a1a;
+  }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    background: #0a0a0a;
-    color: #e0e0e0;
+    background: var(--bg);
+    color: var(--text);
     font-family: 'Courier New', monospace;
     overflow: hidden;
     height: 100vh;
@@ -17,357 +30,643 @@
   }
 
   #canvas-wrapper {
-    position: absolute;
-    inset: 0;
-    cursor: grab;
-    overflow: hidden;
-    background: #111;
+    position: absolute; inset: 0;
+    cursor: grab; overflow: hidden;
+    background: var(--bg);
   }
-
   #canvas-wrapper.grabbing { cursor: grabbing; }
 
-  #map-img {
+  /* Основной canvas карты — двигается вместе с картой */
+  #map-canvas {
     position: absolute;
+    transform-origin: 0 0;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
-    transform-origin: 0 0;
-    user-select: none;
     pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  #map-canvas.fading { opacity: 0; }
+
+  /* Rings и markers поверх — в экранных координатах */
+  #rings-canvas {
+    position: absolute; inset: 0;
+    pointer-events: none; z-index: 3;
   }
 
-  #crosshair {
+  #markers-layer {
+    position: absolute; inset: 0;
+    pointer-events: none; z-index: 4;
+  }
+
+  .marker {
     position: absolute;
-    top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    pointer-events: none;
-    opacity: 0.2;
+    pointer-events: all; cursor: pointer;
+  }
+  .marker-icon {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.7);
+  }
+  .marker:hover .marker-icon {
+    transform: scale(1.35);
+    box-shadow: 0 4px 18px rgba(0,0,0,0.9);
+  }
+  .marker-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%; transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    padding: 5px 10px; font-size: 11px;
+    white-space: nowrap;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.15s ease;
+    color: var(--text-bright);
+    letter-spacing: 0.05em; line-height: 1.6;
+  }
+  .marker:hover .marker-tooltip { opacity: 1; }
+
+  #crosshair {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none; opacity: 0.15; z-index: 5;
   }
   #crosshair::before, #crosshair::after {
     content: ''; position: absolute; background: #fff;
   }
-  #crosshair::before { width: 12px; height: 1px; top: 0; left: -6px; }
-  #crosshair::after  { width: 1px; height: 12px; top: -6px; left: 0; }
+  #crosshair::before { width: 14px; height: 1px; top: 0; left: -7px; }
+  #crosshair::after  { width: 1px; height: 14px; top: -7px; left: 0; }
 
-  #ui { position: absolute; inset: 0; pointer-events: none; }
+  #ui { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
 
-  /* TOP RIGHT — dropdown */
-  #top-bar {
-    position: absolute;
-    top: 16px; right: 16px;
+  #top-left {
+    position: absolute; top: 16px; left: 16px;
+    display: flex; flex-direction: column; gap: 4px;
+    pointer-events: none;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.7);
+  }
+  #dim-label { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: #888; }
+  #map-size-label { font-size: 11px; color: #777; letter-spacing: 0.05em; }
+  #map-note { font-size: 10px; color: #555; font-style: italic; margin-top: 2px; }
+
+  #top-right {
+    position: absolute; top: 16px; right: 16px;
+    display: flex; gap: 6px; align-items: center;
     pointer-events: all;
   }
 
   #render-select {
-    background: #1a1a1a;
-    border: 1px solid #444;
-    color: #ccc;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    color: var(--text);
     font-family: 'Courier New', monospace;
-    font-size: 12px;
-    padding: 7px 12px;
-    cursor: pointer;
-    letter-spacing: 0.06em;
-    outline: none;
-    min-width: 220px;
+    font-size: 11px; padding: 7px 28px 7px 12px;
+    cursor: pointer; letter-spacing: 0.06em;
+    outline: none; min-width: 230px;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23555'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-color: var(--surface);
+    transition: border-color 0.15s, color 0.15s;
   }
+  #render-select:hover { border-color: #555; color: var(--text-bright); }
+  #render-select option { background: var(--surface2); color: var(--text); }
 
-  #render-select:hover { border-color: #666; color: #fff; }
-  #render-select option { background: #1a1a1a; color: #ccc; }
-
-  /* TOP LEFT — current render label */
-  #dim-label {
-    position: absolute;
-    top: 16px; left: 16px;
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #555;
-    pointer-events: none;
+  .icon-btn {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text-dim); width: 32px; height: 32px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 14px; flex-shrink: 0; user-select: none;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
   }
+  .icon-btn:hover { background: var(--surface2); color: var(--text-bright); border-color: var(--border2); }
+  .icon-btn.active { color: var(--accent2); border-color: var(--accent); }
 
-  /* BOTTOM — zoom + coords */
   #bottom-bar {
-    position: absolute;
-    bottom: 16px; left: 50%;
+    position: absolute; bottom: 16px; left: 50%;
     transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    background: #1a1a1acc;
-    border: 1px solid #333;
-    padding: 8px 18px;
-    pointer-events: all;
-    backdrop-filter: blur(4px);
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(8,8,8,0.88);
+    border: 1px solid var(--border);
+    padding: 7px 16px; pointer-events: all;
+    backdrop-filter: blur(8px);
   }
-
-  #coords {
-    font-size: 12px; color: #aaa;
-    letter-spacing: 0.06em;
-    min-width: 180px; text-align: center;
-  }
-  #coords span { color: #fff; }
-
-  #zoom-label {
-    font-size: 11px; color: #666;
-    letter-spacing: 0.08em;
-    min-width: 55px; text-align: right;
-  }
-
+  #coords { font-size: 12px; color: var(--text-dim); letter-spacing: 0.06em; min-width: 200px; text-align: center; }
+  #coords span { color: var(--text-bright); }
+  .sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+  #zoom-label { font-size: 11px; color: var(--text-dim); min-width: 50px; text-align: center; }
   #zoom-controls { display: flex; gap: 4px; }
-
   .zoom-btn {
-    background: #222; border: 1px solid #333;
-    color: #aaa; font-family: 'Courier New', monospace;
-    font-size: 14px; width: 26px; height: 26px;
-    cursor: pointer; display: flex;
-    align-items: center; justify-content: center;
-    transition: background 0.1s, color 0.1s;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text-dim); font-family: 'Courier New', monospace;
+    font-size: 15px; width: 26px; height: 26px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background 0.1s, color 0.1s; line-height: 1; user-select: none;
   }
-  .zoom-btn:hover { background: #2e2e2e; color: #fff; }
+  .zoom-btn:hover { background: #222; color: var(--text-bright); }
 
-  /* LOADING */
+  #share-toast {
+    position: absolute; bottom: 62px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--border2);
+    color: var(--text); font-size: 11px; padding: 6px 14px;
+    letter-spacing: 0.06em; opacity: 0; pointer-events: none;
+    transition: opacity 0.3s; z-index: 20;
+  }
+  #share-toast.visible { opacity: 1; }
+
   #loading {
-    position: absolute; inset: 0;
-    background: #0a0a0a;
-    display: flex; align-items: center;
-    justify-content: center; flex-direction: column;
-    gap: 12px; z-index: 100;
+    position: absolute; inset: 0; background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; z-index: 100;
+    transition: opacity 0.4s;
   }
-  #loading p { font-size: 12px; letter-spacing: 0.1em; color: #555; text-transform: uppercase; }
-  #loading .err {
-    color: #884444; font-size: 11px;
-    max-width: 420px; text-align: center; line-height: 1.6;
-  }
-  #err-hint { display: none; }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  #loading-title { font-size: 13px; letter-spacing: 0.2em; color: var(--text-dim); text-transform: uppercase; }
+  #loading-bar-wrap { width: 180px; height: 2px; background: var(--border); }
+  #loading-bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.4s ease; }
+  #loading-sub { font-size: 10px; color: #333; letter-spacing: 0.1em; }
+  .err-msg { color: #774444; font-size: 10px; max-width: 380px; text-align: center; line-height: 1.7; display: none; }
 </style>
 </head>
 <body>
 
 <div id="loading">
-  <p id="loading-text">Loading renders...</p>
-  <p class="err" id="err-hint">
-    Не удалось загрузить renders.json или изображение.<br>
-    Убедись что файлы лежат в правильных папках и сервер запущен.<br><br>
-    Локально: <code>python -m http.server 8080</code>
-  </p>
+  <p id="loading-title">Anarchy Map</p>
+  <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+  <p id="loading-sub">loading renders...</p>
+  <p class="err-msg" id="err-hint">Не удалось загрузить renders.json или изображение.<br>Запусти: <code>python -m http.server 8080</code></p>
 </div>
 
 <div id="canvas-wrapper">
-  <img id="map-img" draggable="false" alt="map" />
+  <canvas id="map-canvas"></canvas>
+  <canvas id="rings-canvas"></canvas>
+  <div id="markers-layer"></div>
   <div id="crosshair"></div>
 </div>
 
 <div id="ui">
-  <div id="dim-label">—</div>
-
-  <div id="top-bar">
+  <div id="top-left">
+    <div id="dim-label">—</div>
+    <div id="map-size-label"></div>
+    <div id="map-note"></div>
+  </div>
+  <div id="top-right">
+    <button class="icon-btn active" id="btn-markers" title="Маркеры (M)" onclick="toggleMarkers()">⚑</button>
+    <button class="icon-btn active" id="btn-rings"   title="Кольца (R)"  onclick="toggleRings()">◎</button>
+    <button class="icon-btn"        id="btn-share"   title="Скопировать ссылку" onclick="shareLink()">⎘</button>
+    <button class="icon-btn"        id="btn-spawn"   title="На спавн (H)" onclick="goToSpawn()">⌖</button>
+    <button class="icon-btn"        id="btn-fs"      title="Полный экран (F)" onclick="toggleFullscreen()">⛶</button>
     <select id="render-select" onchange="onSelectChange()">
       <option disabled selected>Загрузка...</option>
     </select>
   </div>
-
   <div id="bottom-bar">
     <div id="zoom-controls">
       <button class="zoom-btn" onclick="zoomBy(1.5)">+</button>
       <button class="zoom-btn" onclick="zoomBy(1/1.5)">−</button>
     </div>
+    <div class="sep"></div>
     <div id="zoom-label">100%</div>
+    <div class="sep"></div>
     <div id="coords">X: <span id="cx">0</span> &nbsp; Z: <span id="cz">0</span></div>
   </div>
 </div>
 
+<div id="share-toast">Ссылка скопирована</div>
+
 <script>
-// Парсит имя файла типа "overworld20260422" или "nether20260509"
-function parseRenderName(name) {
-  const dimMap = {
-    overworld: 'Overworld',
-    nether: 'Nether',
-    theend: 'The End',
-    end: 'The End'
-  };
+const WATERMARK_LINE1 = 'anarchyzone.play.hosting';
+const WATERMARK_LINE2 = 'lebovsky_o_o / ZSAC';
+const SPAWN      = { x: -300, z: 100 };
+const RING_RADII = [100,250,500,750,1000,1500,2000,2500,3000,4000,5000,5500,6000,6500,7000,7500];
+const DIM_MAP    = { overworld:'Overworld', nether:'Nether', theend:'The End', end:'The End' };
+const MARKER_ICONS = {
+  home:  { emoji:'⌂',  def:'#4a9eff' },
+  fire:  { emoji:'🔥', def:'#ff4400' },
+  skull: { emoji:'☠',  def:'#cc2222' },
+  cross: { emoji:'✚',  def:'#ff2222' },
+  star:  { emoji:'★',  def:'#ffcc00' },
+  flag:  { emoji:'⚑',  def:'#ff8800' },
+  pin:   { emoji:'●',  def:'#888888' }
+};
 
-  const match = name.match(/^([a-z]+)(\d{4})(\d{2})(\d{2})$/);
+let renders = [], markers = [], currentRender = null;
+let loadedImage = null; // храним загруженный Image объект
+let scale = 1, offsetX = 0, offsetY = 0;
+let isDragging = false, lastX = 0, lastY = 0;
+let showMarkers = true, showRings = true;
+
+const mapCanvas    = document.getElementById('map-canvas');
+const mapCtx       = mapCanvas.getContext('2d');
+const wrapper      = document.getElementById('canvas-wrapper');
+const loadingEl    = document.getElementById('loading');
+const loadingBar   = document.getElementById('loading-bar');
+const loadingSub   = document.getElementById('loading-sub');
+const errHint      = document.getElementById('err-hint');
+const dimLabelEl   = document.getElementById('dim-label');
+const mapSizeLbl   = document.getElementById('map-size-label');
+const mapNoteLbl   = document.getElementById('map-note');
+const zoomLabelEl  = document.getElementById('zoom-label');
+const cxEl         = document.getElementById('cx');
+const czEl         = document.getElementById('cz');
+const selectEl     = document.getElementById('render-select');
+const markersLayer = document.getElementById('markers-layer');
+const ringsCanvas  = document.getElementById('rings-canvas');
+const shareToast   = document.getElementById('share-toast');
+
+// ── PARSE ────────────────────────────────────────────────
+function parseRender(entry) {
+  const name  = typeof entry === 'string' ? entry : entry.name;
+  const sizeO = typeof entry === 'object' ? entry.size : null;
+  const note  = typeof entry === 'object' ? (entry.note || '') : '';
+  const match = name.match(/^([a-z]+?)(\d{4})(\d{2})(\d{2})(alt(\d+))?$/);
   if (!match) return null;
-
-  const [, dimRaw, year, month, day] = match;
-  const dimLabel = dimMap[dimRaw] || dimRaw;
+  const [, dimRaw, year, month, day,, altNum] = match;
+  const dimStr  = DIM_MAP[dimRaw] || dimRaw;
   const dateStr = `${year}.${month}.${day}`;
-
-  return {
-    file: `renders/${name}.png`,
-    label: `${dimLabel} (${dateStr})`,
-    dimLabel: `${dimLabel} — ${dateStr}`,
-    size: null // определится после загрузки изображения
-  };
+  const altStr  = altNum ? ` ALT${altNum}` : '';
+  return { name, file:`renders/${name}.png`, label:`${dimStr} (${dateStr}${altStr})`,
+           dimLabel:`${dimStr} — ${dateStr}${altStr}`, dimRaw, size:sizeO, note };
 }
 
-let renders = [];
-let currentRender = null;
-let scale = 1;
-let offsetX = 0, offsetY = 0;
-let isDragging = false;
-let lastX = 0, lastY = 0;
+// ── CANVAS DRAW ──────────────────────────────────────────
+function drawMap() {
+  if (!loadedImage || !currentRender?.size) return;
+  const s = currentRender.size;
+  mapCanvas.width  = s;
+  mapCanvas.height = s;
 
-const img = document.getElementById('map-img');
-const wrapper = document.getElementById('canvas-wrapper');
-const loading = document.getElementById('loading');
-const loadingText = document.getElementById('loading-text');
-const errHint = document.getElementById('err-hint');
-const dimLabel = document.getElementById('dim-label');
-const zoomLabel = document.getElementById('zoom-label');
-const cxEl = document.getElementById('cx');
-const czEl = document.getElementById('cz');
-const selectEl = document.getElementById('render-select');
+  // 1. Рисуем изображение карты
+  mapCtx.imageSmoothingEnabled = false;
+  mapCtx.drawImage(loadedImage, 0, 0, s, s);
 
-function getViewport() {
-  return { w: window.innerWidth, h: window.innerHeight };
+  // 2. Рисуем вотермарку поверх карты
+  mapCtx.save();
+  mapCtx.globalAlpha = 0.18;
+  mapCtx.rotate(-Math.PI / 6);
+
+  const step = Math.round(s / 10); // шаг сетки относительно размера карты
+  const span = s * 3;
+
+  mapCtx.font = `${Math.round(s / 200)}px Courier New`;
+  mapCtx.fillStyle = '#ffffff';
+  mapCtx.shadowColor = 'rgba(0,0,0,0.85)';
+  mapCtx.shadowBlur  = 4;
+  mapCtx.textAlign   = 'center';
+
+  const lineH = Math.round(s / 180);
+
+  for (let r = -span/step; r < span/step * 2; r++) {
+    for (let c = -span/step; c < span/step * 2; c++) {
+      const px = c * step + (Math.round(r) % 2 === 0 ? 0 : step/2);
+      const py = r * step * 0.6;
+      mapCtx.fillText(WATERMARK_LINE1, px, py);
+      mapCtx.fillText(WATERMARK_LINE2, px, py + lineH);
+    }
+  }
+  mapCtx.restore();
+
+  // 3. Применяем transform через CSS
+  applyTransform();
 }
+
+// ── VIEWPORT ─────────────────────────────────────────────
+function vp() { return { w: window.innerWidth, h: window.innerHeight }; }
 
 function fitToScreen() {
-  if (!currentRender) return;
-  const vp = getViewport();
-  const size = currentRender.size;
-  scale = Math.min(vp.w / size, vp.h / size) * 0.95;
-  offsetX = (vp.w - size * scale) / 2;
-  offsetY = (vp.h - size * scale) / 2;
+  if (!currentRender?.size) return;
+  const { w, h } = vp(), s = currentRender.size;
+  scale   = Math.min(w/s, h/s) * 0.95;
+  offsetX = (w - s * scale) / 2;
+  offsetY = (h - s * scale) / 2;
   applyTransform();
 }
 
 function applyTransform() {
-  img.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
-  zoomLabel.textContent = Math.round(scale * 100) + '%';
+  mapCanvas.style.transform = `translate(${offsetX}px,${offsetY}px) scale(${scale})`;
+  zoomLabelEl.textContent   = Math.round(scale * 100) + '%';
+  drawRings();
+  updateMarkersPos();
 }
 
-function updateCoords(clientX, clientY) {
-  if (!currentRender) return;
-  const size = currentRender.size;
-  const half = size / 2;
-  const px = (clientX - offsetX) / scale;
-  const py = (clientY - offsetY) / scale;
-  const x = Math.round(px - half);
-  const z = Math.round(py - half);
-  cxEl.textContent = x;
-  czEl.textContent = z;
+// ── COORDS ───────────────────────────────────────────────
+function screenToWorld(sx, sy) {
+  if (!currentRender?.size) return { x:0, z:0 };
+  const half = currentRender.size / 2;
+  return { x: Math.round((sx - offsetX) / scale - half), z: Math.round((sy - offsetY) / scale - half) };
 }
 
+function worldToScreen(wx, wz) {
+  if (!currentRender?.size) return { x:0, y:0 };
+  const half = currentRender.size / 2;
+  return { x: (wx + half) * scale + offsetX, y: (wz + half) * scale + offsetY };
+}
+
+function updateCoords(sx, sy) {
+  const { x, z } = screenToWorld(sx, sy);
+  cxEl.textContent = x; czEl.textContent = z;
+}
+
+// ── ZOOM ─────────────────────────────────────────────────
 function zoomBy(factor, cx, cy) {
-  const vp = getViewport();
-  cx = cx ?? vp.w / 2;
-  cy = cy ?? vp.h / 2;
-  const prevScale = scale;
-  scale = Math.max(0.02, Math.min(50, scale * factor));
-  offsetX = cx - (cx - offsetX) * (scale / prevScale);
-  offsetY = cy - (cy - offsetY) * (scale / prevScale);
+  const { w, h } = vp();
+  cx = cx ?? w/2; cy = cy ?? h/2;
+  const prev = scale;
+  scale = Math.max(0.02, Math.min(60, scale * factor));
+  offsetX = cx - (cx - offsetX) * (scale / prev);
+  offsetY = cy - (cy - offsetY) * (scale / prev);
   applyTransform();
+  saveSession();
 }
 
+// ── LOAD RENDER ──────────────────────────────────────────
 function loadRender(render) {
   currentRender = render;
-  loading.style.display = 'flex';
-  errHint.style.display = 'none';
-  loadingText.textContent = 'Loading ' + render.label + '...';
-  dimLabel.textContent = render.dimLabel;
+  mapCanvas.classList.add('fading');
+  loadingEl.classList.remove('hidden');
+  loadingBar.style.width  = '30%';
+  loadingSub.textContent  = 'loading ' + render.label + '...';
+  errHint.style.display   = 'none';
+  dimLabelEl.textContent  = render.dimLabel;
+  mapNoteLbl.textContent  = render.note || '';
+  mapSizeLbl.textContent  = '';
 
-  const newImg = new Image();
-  newImg.onload = () => {
-    render.size = newImg.naturalWidth; // берём реальный размер
-    img.src = newImg.src;
-    loading.style.display = 'none';
-    fitToScreen();
+  const img = new Image();
+  img.onload = () => {
+    if (!render.size) render.size = img.naturalWidth;
+    mapSizeLbl.textContent = `${render.size} × ${render.size} блоков  (~${render.size/2} от центра)`;
+    loadingBar.style.width = '100%';
+    setTimeout(() => {
+      loadedImage = img;
+      mapCanvas.classList.remove('fading');
+      loadingEl.classList.add('hidden');
+      drawMap();
+      fitToScreen();
+      renderMarkers();
+      restoreSession(render.name);
+    }, 280);
   };
-  newImg.onerror = () => {
-    loadingText.textContent = 'Ошибка загрузки';
-    errHint.style.display = 'block';
+  img.onerror = () => {
+    loadingSub.textContent = 'Ошибка загрузки';
+    errHint.style.display  = 'block';
+    loadingBar.style.width = '0%';
   };
-  newImg.src = render.file;
+  img.src = render.file;
 }
 
 function onSelectChange() {
   const idx = selectEl.value;
-  if (idx === '' || idx === undefined) return;
-  loadRender(renders[idx]);
+  if (idx === '' || idx == null) return;
+  loadRender(renders[+idx]);
 }
 
-async function init() {
-  try {
-    const resp = await fetch('renders.json');
-    if (!resp.ok) throw new Error('no renders.json');
-    const names = await resp.json();
+// ── RINGS ────────────────────────────────────────────────
+function drawRings() {
+  if (!currentRender?.size) return;
+  const { w, h } = vp();
+  ringsCanvas.width = w; ringsCanvas.height = h;
+  const ctx = ringsCanvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  if (!showRings) return;
 
-    renders = names.map(parseRenderName).filter(Boolean);
+  const half = currentRender.size / 2;
+  const cx0  = half * scale + offsetX;
+  const cy0  = half * scale + offsetY;
 
-    if (renders.length === 0) {
-      loadingText.textContent = 'Нет рендеров в renders.json';
-      errHint.style.display = 'block';
-      return;
+  RING_RADII.forEach(r => {
+    const px = r * scale;
+    if (px < 25) return;
+    const alpha = Math.min(0.3, px / 500 * 0.3);
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    ctx.lineWidth = 0.6;
+    ctx.setLineDash([3, 7]);
+    ctx.beginPath();
+    ctx.rect(cx0 - px, cy0 - px, px*2, px*2);
+    ctx.stroke();
+    if (px > 55) {
+      ctx.setLineDash([]);
+      ctx.font = '9px Courier New';
+      ctx.fillStyle = `rgba(255,255,255,${alpha * 1.6})`;
+      ctx.textAlign = 'left';
+      ctx.fillText(r, cx0 + px + 3, cy0 - px + 10);
     }
-
-    selectEl.innerHTML = '';
-    renders.forEach((r, i) => {
-      const opt = document.createElement('option');
-      opt.value = i;
-      opt.textContent = r.label;
-      selectEl.appendChild(opt);
-    });
-
-    selectEl.value = 0;
-    loadRender(renders[0]);
-
-  } catch (e) {
-    loadingText.textContent = 'Ошибка загрузки';
-    errHint.style.display = 'block';
-  }
+  });
 }
 
-// Drag
+function toggleRings() {
+  showRings = !showRings;
+  document.getElementById('btn-rings').classList.toggle('active', showRings);
+  drawRings();
+}
+
+// ── MARKERS ──────────────────────────────────────────────
+function renderMarkers() {
+  markersLayer.innerHTML = '';
+  if (!showMarkers || !currentRender) return;
+  const dim = currentRender.dimRaw;
+  markers.filter(m => (m.dim || 'overworld') === dim).forEach(m => {
+    const pos  = worldToScreen(m.x, m.z);
+    const icon = MARKER_ICONS[m.type] || MARKER_ICONS.pin;
+    const col  = m.color || icon.def;
+    const el   = document.createElement('div');
+    el.className = 'marker';
+    el.style.left = pos.x + 'px';
+    el.style.top  = pos.y + 'px';
+    el.innerHTML = `
+      <div class="marker-icon" style="background:${col}22;border-color:${col}88;">
+        <span style="color:${col}">${icon.emoji}</span>
+      </div>
+      <div class="marker-tooltip">${m.label}<br>
+        <span style="color:var(--text-dim);font-size:9px">${m.x}, ${m.z}</span>
+      </div>`;
+    markersLayer.appendChild(el);
+  });
+}
+
+function updateMarkersPos() {
+  if (!currentRender) return;
+  const dim  = currentRender.dimRaw;
+  const els  = markersLayer.querySelectorAll('.marker');
+  const filt = markers.filter(m => (m.dim || 'overworld') === dim);
+  els.forEach((el, i) => {
+    if (!filt[i]) return;
+    const pos = worldToScreen(filt[i].x, filt[i].z);
+    el.style.left = pos.x + 'px';
+    el.style.top  = pos.y + 'px';
+  });
+}
+
+function toggleMarkers() {
+  showMarkers = !showMarkers;
+  document.getElementById('btn-markers').classList.toggle('active', showMarkers);
+  renderMarkers();
+}
+
+// ── SPAWN ────────────────────────────────────────────────
+function goToSpawn() {
+  if (!currentRender?.size) return;
+  const { w, h } = vp(), half = currentRender.size / 2;
+  offsetX = w/2 - (SPAWN.x + half) * scale;
+  offsetY = h/2 - (SPAWN.z + half) * scale;
+  applyTransform(); saveSession();
+}
+
+// ── SHARE ────────────────────────────────────────────────
+function shareLink() {
+  const { w, h } = vp();
+  const { x, z } = screenToWorld(w/2, h/2);
+  const url = new URL(location.href);
+  url.searchParams.set('r', selectEl.value);
+  url.searchParams.set('x', x);
+  url.searchParams.set('z', z);
+  url.searchParams.set('s', Math.round(scale * 100));
+  navigator.clipboard.writeText(url.toString()).then(() => {
+    shareToast.classList.add('visible');
+    setTimeout(() => shareToast.classList.remove('visible'), 2000);
+  });
+}
+
+// ── SESSION ──────────────────────────────────────────────
+function saveSession() {
+  if (!currentRender) return;
+  try {
+    const { w, h } = vp();
+    const { x, z } = screenToWorld(w/2, h/2);
+    sessionStorage.setItem('map_pos', JSON.stringify({ render: currentRender.name, x, z, scale: Math.round(scale*100) }));
+  } catch(e) {}
+}
+
+function restoreSession(name) {
+  try {
+    const params = new URLSearchParams(location.search);
+    if (params.has('x') && params.has('z') && params.has('s')) {
+      const wx = +params.get('x'), wz = +params.get('z'), sc = +params.get('s')/100;
+      const { w, h } = vp(), half = currentRender.size / 2;
+      scale = sc;
+      offsetX = w/2 - (wx + half) * scale;
+      offsetY = h/2 - (wz + half) * scale;
+      applyTransform(); return;
+    }
+    const saved = JSON.parse(sessionStorage.getItem('map_pos') || 'null');
+    if (!saved || saved.render !== name) return;
+    const { w, h } = vp(), half = currentRender.size / 2;
+    scale = saved.scale / 100;
+    offsetX = w/2 - (saved.x + half) * scale;
+    offsetY = h/2 - (saved.z + half) * scale;
+    applyTransform();
+  } catch(e) {}
+}
+
+// ── FULLSCREEN ───────────────────────────────────────────
+function toggleFullscreen() {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+}
+
+// ── INPUT ────────────────────────────────────────────────
 wrapper.addEventListener('mousedown', e => {
-  isDragging = true;
-  lastX = e.clientX; lastY = e.clientY;
+  if (e.target.closest('.marker')) return;
+  isDragging = true; lastX = e.clientX; lastY = e.clientY;
   wrapper.classList.add('grabbing');
 });
 window.addEventListener('mousemove', e => {
   updateCoords(e.clientX, e.clientY);
   if (!isDragging) return;
-  offsetX += e.clientX - lastX;
-  offsetY += e.clientY - lastY;
+  offsetX += e.clientX - lastX; offsetY += e.clientY - lastY;
   lastX = e.clientX; lastY = e.clientY;
   applyTransform();
 });
 window.addEventListener('mouseup', () => {
+  if (isDragging) saveSession();
   isDragging = false;
   wrapper.classList.remove('grabbing');
 });
-
-// Zoom
 wrapper.addEventListener('wheel', e => {
   e.preventDefault();
   zoomBy(e.deltaY < 0 ? 1.12 : 1/1.12, e.clientX, e.clientY);
 }, { passive: false });
 
-// Touch
+let lastTouchDist = 0;
 wrapper.addEventListener('touchstart', e => {
-  if (e.touches.length === 1) {
-    isDragging = true;
-    lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
-  }
+  if (e.touches.length === 1) { isDragging = true; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; }
+  else if (e.touches.length === 2) { isDragging = false; lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }
 }, { passive: true });
 wrapper.addEventListener('touchmove', e => {
-  if (isDragging && e.touches.length === 1) {
-    offsetX += e.touches[0].clientX - lastX;
-    offsetY += e.touches[0].clientY - lastY;
+  if (e.touches.length === 1 && isDragging) {
+    offsetX += e.touches[0].clientX - lastX; offsetY += e.touches[0].clientY - lastY;
     lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
     applyTransform();
+  } else if (e.touches.length === 2) {
+    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    if (lastTouchDist > 0) zoomBy(dist / lastTouchDist, cx, cy);
+    lastTouchDist = dist;
   }
 }, { passive: true });
-wrapper.addEventListener('touchend', () => { isDragging = false; });
+wrapper.addEventListener('touchend', () => { isDragging = false; lastTouchDist = 0; saveSession(); });
 
-// Keys
 window.addEventListener('keydown', e => {
   if (e.key === '+' || e.key === '=') zoomBy(1.2);
   if (e.key === '-') zoomBy(1/1.2);
   if (e.key === '0') fitToScreen();
+  if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+  if (e.key === 'm' || e.key === 'M') toggleMarkers();
+  if (e.key === 'r' || e.key === 'R') toggleRings();
+  if (e.key === 'h' || e.key === 'H') goToSpawn();
 });
 
-window.addEventListener('resize', fitToScreen);
+window.addEventListener('resize', () => { drawRings(); fitToScreen(); });
+
+// ── INIT ─────────────────────────────────────────────────
+async function init() {
+  loadingBar.style.width = '15%';
+  try {
+    const rResp = await fetch('renders.json');
+    if (!rResp.ok) throw new Error('no renders.json');
+    const raw = await rResp.json();
+    const parsed = raw.map(parseRender).filter(Boolean);
+    if (!parsed.length) throw new Error('empty');
+
+    loadingBar.style.width = '50%';
+
+    renders = [
+      ...parsed.filter(r => r.dimRaw === 'overworld').reverse(),
+      ...parsed.filter(r => r.dimRaw !== 'overworld')
+    ];
+
+    selectEl.innerHTML = '';
+    renders.forEach((r, i) => {
+      const opt = document.createElement('option');
+      opt.value = i; opt.textContent = r.label;
+      selectEl.appendChild(opt);
+    });
+
+    const params = new URLSearchParams(location.search);
+    const rIdx = params.has('r') ? Math.min(+params.get('r'), renders.length - 1) : 0;
+    selectEl.value = rIdx;
+
+    loadingBar.style.width = '70%';
+
+    try {
+      const mResp = await fetch('markers.json');
+      if (mResp.ok) markers = await mResp.json();
+    } catch(e) { markers = []; }
+
+    loadRender(renders[rIdx]);
+  } catch(e) {
+    loadingSub.textContent = 'Ошибка загрузки';
+    errHint.style.display  = 'block';
+    loadingBar.style.width = '0%';
+  }
+}
 
 init();
 </script>
